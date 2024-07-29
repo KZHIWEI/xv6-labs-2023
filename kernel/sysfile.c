@@ -334,22 +334,49 @@ sys_open(void)
       return -1;
     }
   }
+  if (ip->type == T_SYMLINK) {
+    if ((omode & O_NOFOLLOW) == 0) {
+      const uint MAX_RECURSIVE = 10;
+      char new_path[MAXPATH];
 
-  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
+      for (int i = 0; i < MAX_RECURSIVE; i++) {
+        if (ip->type != T_SYMLINK) {
+          break;
+        }
+        if (readi(ip, 0, (uint64)&new_path, 0, MAXPATH * sizeof(char)) < 0) {
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        iunlockput(ip);
+        if ((ip = namei(new_path)) == 0) {
+          end_op();
+          return -1;
+        }
+        ilock(ip);
+      }
+      if (ip->type == T_SYMLINK) {
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+    }
+  }
+
+  if (ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)) {
     iunlockput(ip);
     end_op();
     return -1;
   }
 
-  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
-    if(f)
-      fileclose(f);
+  if ((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0) {
+    if (f) fileclose(f);
     iunlockput(ip);
     end_op();
     return -1;
   }
 
-  if(ip->type == T_DEVICE){
+  if (ip->type == T_DEVICE) {
     f->type = FD_DEVICE;
     f->major = ip->major;
   } else {
@@ -360,7 +387,7 @@ sys_open(void)
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
 
-  if((omode & O_TRUNC) && ip->type == T_FILE){
+  if ((omode & O_TRUNC) && ip->type == T_FILE) {
     itrunc(ip);
   }
 
@@ -501,5 +528,42 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64 sys_symlink(void) {
+  char old[MAXPATH], new[MAXPATH];
+  // struct inode *ip;
+  if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0) return -1;
+
+  begin_op();
+  // if ((ip = namei(old)) == 0) {
+  //   end_op();
+  //   return -1;
+  // }
+  // ilock(ip);
+  // if (ip->type == T_DIR) {
+  //   iunlockput(ip);
+  //   end_op();
+  //   return -1;
+  // }
+
+  // iunlock(ip);
+
+  struct inode *target = create(new, T_SYMLINK, 0, 0);
+  if (target == 0) {
+    end_op();
+    return -1;
+  }
+  // ilock(target);
+  if (writei(target, 0, (uint64)&old, 0, MAXPATH * sizeof(char)) < 0) {
+    iunlockput(target);
+
+    end_op();
+    return -1;
+  }
+  iunlockput(target);
+  end_op();
+
   return 0;
 }
