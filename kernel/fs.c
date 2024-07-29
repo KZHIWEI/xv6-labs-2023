@@ -395,7 +395,6 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
   bn -= NDIRECT;
-
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0){
@@ -416,7 +415,43 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
+  bn -= NINDIRECT;
 
+  if (bn < NDINDIRECT) {
+    struct buf *partition_b;
+    int partition = bn / NINDIRECT;
+    bn = bn % NINDIRECT;
+    // printf("partition: %d bn: %d  \n", partition, bn);
+    if ((addr = ip->addrs[NDIRECT + 1]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr == 0) {
+        return 0;
+      }
+      ip->addrs[NDIRECT + 1] = addr;
+    }
+    partition_b = bread(ip->dev, addr);
+    a = (uint *)partition_b->data;
+    if ((addr = a[partition]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr == 0) {
+        return 0;
+      }
+      a[partition] = addr;
+      log_write(partition_b);
+    }
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[bn % NINDIRECT]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr) {
+        a[bn] = addr;
+        log_write(bp);
+      }
+    }
+    brelse(partition_b);
+    brelse(bp);
+    return addr;
+  }
   panic("bmap: out of range");
 }
 
@@ -425,7 +460,7 @@ bmap(struct inode *ip, uint bn)
 void
 itrunc(struct inode *ip)
 {
-  int i, j;
+  int i, j, k, m;
   struct buf *bp;
   uint *a;
 
@@ -447,7 +482,33 @@ itrunc(struct inode *ip)
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
+  if (ip->addrs[NDIRECT + 1]) {
+    struct buf *partition_b;
+    partition_b = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+    a = (uint *)partition_b->data;
+    for (k = 0; k < NINDIRECT; k++) {
+      if (a[k]) {
+        uint *c;
+        struct buf *partition_block;
 
+        partition_block = bread(ip->dev, a[k]);
+        c = (uint *)partition_block->data;
+
+        for (m = 0; m < NINDIRECT; m++) {
+          if (c[m]) {
+            bfree(ip->dev, c[m]);
+          }
+        }
+        brelse(partition_block);
+        bfree(ip->dev, a[k]);
+        a[k] = 0;
+      }
+    }
+
+    brelse(partition_b);
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]);
+    ip->addrs[NDIRECT + 1] = 0;
+  }
   ip->size = 0;
   iupdate(ip);
 }
