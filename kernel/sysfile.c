@@ -539,14 +539,14 @@ uint64 sys_mmap(void) {
       p->vmas[i].len = len;
       p->vmas[i].flags = flags;
       p->vmas[i].prot = prot;
-      p->vmas[i].f = f;
+      p->vmas[i].f = filedup(f);
       break;
     }
   }
   if (!found) {
     return 0xffffffffffffffff;
   }
-  f->ref++;
+
   return addr;
 }
 
@@ -574,16 +574,18 @@ uint64 sys_munmap(void) {
     uint64 start_addr = PGROUNDUP(addr);
     uint64 end_addr = PGROUNDUP(addr + len);
     uint64 file_pos = addr - vmarea->addr + vmarea->offset;
-    for (; start_addr <= end_addr; start_addr += PGSIZE) {
-      // pte_t *pte = walk(p->pagetable, start_addr, 0);
-      // if (*pte & PTE_A) {
-      // printf("write %d\n", start_addr);
-      int r = filewrite_block(vmarea->f, start_addr, PGROUNDUP(file_pos));
-      printf("write %d\n", r);
-      // }
+    for (; start_addr < end_addr; start_addr += PGSIZE) {
+      pte_t *pte = walk(p->pagetable, start_addr, 0);
+      // char *pa = (char *)PTE2PA(*pte);
+      if (*pte & PTE_A) {
+        // printf("%d\n", *pa);
+        filewrite_block(vmarea->f, start_addr, PGROUNDUP(file_pos));
+        // printf("write %d\n", r);
+        // }
+      }
+      file_pos += PGSIZE;
     }
   }
-
   if (PGROUNDUP(addr) == PGROUNDUP(vmarea->addr) &&
       PGROUNDUP(addr + len) == PGROUNDUP(vmarea->addr + vmarea->len)) {
     fileclose(vmarea->f);

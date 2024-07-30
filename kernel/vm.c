@@ -157,17 +157,20 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   
   a = va;
   last = va + size - PGSIZE;
+  // int count = 0;
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
     if(*pte & PTE_V)
       panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
+    // count++;
     if(a == last)
       break;
     a += PGSIZE;
     pa += PGSIZE;
   }
+  // printf("count: %d\n", count);
   return 0;
 }
 

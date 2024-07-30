@@ -306,9 +306,30 @@ fork(void)
   np->trapframe->a0 = 0;
 
   // increment reference counts on open file descriptors.
-  for(i = 0; i < NOFILE; i++)
-    if(p->ofile[i])
+  for (i = 0; i < NOFILE; i++) {
+    if (p->ofile[i]) {
       np->ofile[i] = filedup(p->ofile[i]);
+    }
+  }
+
+  for (int v = 0; v < NOFILE; v++) {
+    if (p->vmas[v].addr != 0) {
+      np->vmas[v].addr = p->vmas[v].addr;
+      np->vmas[v].len = p->vmas[v].len;
+      np->vmas[v].flags = p->vmas[v].flags;
+      np->vmas[v].prot = p->vmas[v].prot;
+      np->vmas[v].f = filedup(p->vmas[v].f);
+      // uvmunmap(np->pagetable, np->vmas[v].addr,
+      //          PGROUNDUP(np->vmas[v].len) / PGSIZE, 0);
+      // mmap_fill_page(np->pagetable, np->vmas[v].addr, np->vmas[v].len);
+      // pte_t *pte = walk(p->pagetable, p->vmas[v].addr, 0);
+      // uint64 pa = PTE2PA(*pte);
+
+      // mappages(np->pagetable, np->vmas[v].addr, PGROUNDUP(np->vmas[v].len),
+      // pa,
+      //          PTE_FLAGS(*pte));
+    }
+  }
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
@@ -343,6 +364,12 @@ reparent(struct proc *p)
   }
 }
 
+void print_va(pagetable_t pgtbl, uint64 va) {
+  char a;
+  copyin(pgtbl, (char *)&a, va, 1);
+  printf("%d\n", a);
+}
+
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait().
@@ -362,7 +389,32 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
+  for (int i = 0; i < NOFILE; i++) {
+    struct vma *vmarea = &p->vmas[i];
+    if (vmarea->addr != 0) {
+      if (vmarea->flags & MAP_SHARED) {
+        uint64 start_addr = PGROUNDUP(vmarea->addr);
+        uint64 end_addr = PGROUNDUP(vmarea->addr + vmarea->len);
+        uint64 file_pos = vmarea->offset;
+        for (; start_addr < end_addr; start_addr += PGSIZE) {
+          pte_t *pte = walk(p->pagetable, start_addr, 0);
+          if (*pte & PTE_A) {
+            filewrite_block(vmarea->f, start_addr, PGROUNDUP(file_pos));
+          }
+          file_pos += PGSIZE;
+        }
+      }
+      fileclose(vmarea->f);
 
+      uvmunmap(p->pagetable, vmarea->addr, vmarea->len / PGSIZE, 1);
+      vmarea->addr = 0;
+      p->sz -= vmarea->len;
+      vmarea->len = 0;
+      vmarea->flags = 0;
+      vmarea->prot = 0;
+      vmarea->f = 0;
+    }
+  }
   begin_op();
   iput(p->cwd);
   end_op();
@@ -693,7 +745,7 @@ procdump(void)
 struct vma *check_va_in_vma(struct proc *p, uint64 va) {
   for (int i = 0; i < NOFILE; i++) {
     struct vma *vmarea = &p->vmas[i];
-    if ((va >= vmarea->addr) && (va <= vmarea->addr + vmarea->len)) {
+    if ((va >= vmarea->addr) && (va < vmarea->addr + vmarea->len)) {
       return vmarea;
     }
   }
