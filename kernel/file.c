@@ -180,3 +180,24 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+int fileread_block(struct file *f, uint64 usr_addr, int offset) {
+  int r = 0;
+
+  if (f->readable == 0) return -1;
+
+  ilock(f->ip);
+  r = readi(f->ip, 1, usr_addr, offset, PGSIZE);
+  iunlock(f->ip);
+
+  return r;
+}
+
+int filewrite_block(struct file *f, uint64 usr_addr, int file_offset) {
+  int r = 0;
+  begin_op();
+  ilock(f->ip);
+  r = writei(f->ip, 1, usr_addr, file_offset, PGSIZE);
+  iunlock(f->ip);
+  end_op();
+  return r;
+}

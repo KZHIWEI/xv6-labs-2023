@@ -293,6 +293,44 @@ freewalk(pagetable_t pagetable)
   kfree((void*)pagetable);
 }
 
+uint64 find_unused_address(pagetable_t pgtbl, uint64 offset, uint64 npages) {
+  for (int i = offset / PGSIZE; i < 512; i++) {
+    int empty = 1;
+    for (int k = i; k < i + npages; k++) {
+      pte_t pte = pgtbl[k];
+      if (pte & PTE_V) {
+        empty = 0;
+        i = k;
+        break;
+      }
+    }
+    if (empty) {
+      return i * PGSIZE;
+    }
+  }
+  return 0;
+}
+
+uint64 mmap_fill_page(pagetable_t pgtbl, uint64 starting_pos, uint64 len) {
+  char *mem;
+  uint64 a;
+  len = PGROUNDUP(len);
+  uint64 offset = find_unused_address(pgtbl, starting_pos, len / PGSIZE);
+  for (a = offset; a < offset + len; a += PGSIZE) {
+    mem = kalloc();
+    if (mem == 0) {
+      // uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+    memset(mem, 0, PGSIZE);
+    if (mappages(pgtbl, a, PGSIZE, (uint64)mem, PTE_U) != 0) {
+      kfree(mem);
+      // uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+  }
+  return offset;
+}
 // Free user memory pages,
 // then free page-table pages.
 void

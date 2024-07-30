@@ -184,8 +184,10 @@ mmap_test(void)
     char b;
     if (read(fd, &b, 1) != 1)
       err("read (1)");
-    if (b != 'Z')
+    if (b != 'Z') {
+      // printf("%d\n", i);
       err("file does not contain modifications");
+    }
   }
   if (close(fd) == -1)
     err("close (4)");

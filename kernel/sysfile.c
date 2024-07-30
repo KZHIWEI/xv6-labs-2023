@@ -503,3 +503,105 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64 sys_mmap(void) {
+  uint64 addr;
+  int len;
+  int prot;
+  int flags;
+  int fd;
+  int offset;
+  struct file *f;
+  struct proc *p = myproc();
+
+  argaddr(0, &addr);
+  argint(1, &len);
+  argint(2, &prot);
+  argint(3, &flags);
+  argfd(4, &fd, &f);
+  argint(5, &offset);
+
+  if ((prot & PROT_WRITE) && flags & MAP_SHARED) {
+    if (!f->writable) {
+      return 0xffffffffffffffff;
+    }
+  }
+  addr = mmap_fill_page(p->pagetable, p->sz, len);
+  if (addr == 0) {
+    return 0xffffffffffffffff;
+  }
+  p->sz += len;
+  int found = 0;
+  for (int i = 0; i < NOFILE; i++) {
+    if (p->vmas[i].addr == 0) {
+      found = 1;
+      p->vmas[i].addr = addr;
+      p->vmas[i].len = len;
+      p->vmas[i].flags = flags;
+      p->vmas[i].prot = prot;
+      p->vmas[i].f = f;
+      break;
+    }
+  }
+  if (!found) {
+    return 0xffffffffffffffff;
+  }
+  f->ref++;
+  return addr;
+}
+
+uint64 sys_munmap(void) {
+  uint64 addr;
+  int len;
+  argaddr(0, &addr);
+  argint(1, &len);
+  int found = 0;
+  struct proc *p = myproc();
+  struct vma *vmarea;
+  // struct inode *ip;
+  for (int i = 0; i < NOFILE; i++) {
+    vmarea = &p->vmas[i];
+    if ((vmarea->addr <= addr) && ((vmarea->addr + vmarea->len) >= addr)) {
+      found = 1;
+      break;
+    }
+  }
+  if (!found) {
+    return -1;
+  }
+  // ip = vmarea->f->ip;
+  if (vmarea->flags & MAP_SHARED) {
+    uint64 start_addr = PGROUNDUP(addr);
+    uint64 end_addr = PGROUNDUP(addr + len);
+    uint64 file_pos = addr - vmarea->addr + vmarea->offset;
+    for (; start_addr <= end_addr; start_addr += PGSIZE) {
+      // pte_t *pte = walk(p->pagetable, start_addr, 0);
+      // if (*pte & PTE_A) {
+      // printf("write %d\n", start_addr);
+      int r = filewrite_block(vmarea->f, start_addr, PGROUNDUP(file_pos));
+      printf("write %d\n", r);
+      // }
+    }
+  }
+
+  if (PGROUNDUP(addr) == PGROUNDUP(vmarea->addr) &&
+      PGROUNDUP(addr + len) == PGROUNDUP(vmarea->addr + vmarea->len)) {
+    fileclose(vmarea->f);
+    vmarea->addr = 0;
+    vmarea->len = 0;
+    vmarea->flags = 0;
+    vmarea->prot = 0;
+    vmarea->f = 0;
+  } else {
+    if (PGROUNDUP(addr) == PGROUNDUP(vmarea->addr)) {
+      vmarea->len = vmarea->len - len;
+      vmarea->addr = PGROUNDUP(vmarea->addr + len);
+    } else {
+      vmarea->len = vmarea->len - len;
+    }
+  }
+  // printf("%d, %d\n", PGROUNDUP(addr), len / PGSIZE);
+  uvmunmap(p->pagetable, PGROUNDUP(addr), len / PGSIZE, 1);
+  p->sz -= len;
+  return 0;
+}

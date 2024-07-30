@@ -5,7 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
-
+#include "fcntl.h"
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -146,6 +146,9 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  for (int i = 0; i < NOFILE; i++) {
+    p->vmas[i].addr = 0;
+  }
   return p;
 }
 
@@ -685,4 +688,38 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+struct vma *check_va_in_vma(struct proc *p, uint64 va) {
+  for (int i = 0; i < NOFILE; i++) {
+    struct vma *vmarea = &p->vmas[i];
+    if ((va >= vmarea->addr) && (va <= vmarea->addr + vmarea->len)) {
+      return vmarea;
+    }
+  }
+  return 0;
+}
+
+int load_file_to_vma(struct proc *p, struct vma *vmarea, uint64 va) {
+  uint64 file_pos = va - vmarea->addr + vmarea->offset;
+  va = PGROUNDUP(va);
+  file_pos = PGROUNDDOWN(file_pos);
+  // printf("%d\n", file_pos);
+  int r;
+  pte_t *pte = walk(p->pagetable, va, 0);
+  *pte |= PTE_W;
+
+  r = fileread_block(vmarea->f, PGROUNDDOWN(va), file_pos);
+  if (vmarea->prot & PROT_READ) {
+    *pte |= PTE_R;
+  } else {
+    *pte &= ~PTE_R;
+  }
+  if (vmarea->prot & PROT_WRITE) {
+    *pte |= PTE_W;
+  } else {
+    *pte &= ~PTE_W;
+  }
+  *pte &= ~PTE_A;
+  return r;
 }

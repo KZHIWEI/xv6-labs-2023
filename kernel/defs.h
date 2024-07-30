@@ -41,9 +41,11 @@ void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
+int fileread_block(struct file *f, uint64 usr_addr, int offset);
+int filewrite_block(struct file *f, uint64 usr_addr, int file_offset);
 
 // fs.c
-void            fsinit(int);
+void fsinit(int);
 int             dirlink(struct inode*, char*, uint);
 struct inode*   dirlookup(struct inode*, char*, uint*);
 struct inode*   ialloc(uint, short);
@@ -114,9 +116,11 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+struct vma *check_va_in_vma(struct proc *p, uint64 va);
+int load_file_to_vma(struct proc *p, struct vma *vmarea, uint64 va);
 
 // swtch.S
-void            swtch(struct context*, struct context*);
+void swtch(struct context *, struct context *);
 
 // spinlock.c
 void            acquire(struct spinlock*);
@@ -187,9 +191,10 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+uint64 mmap_fill_page(pagetable_t pgtbl, uint64 starting_pos, uint64 len);
 
 // plic.c
-void            plicinit(void);
+void plicinit(void);
 void            plicinithart(void);
 int             plic_claim(void);
 void            plic_complete(int);
